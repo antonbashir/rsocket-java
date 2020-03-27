@@ -41,21 +41,18 @@ public class ServerRSocketSession implements RSocketSession<DuplexConnection> {
   private final ByteBufAllocator allocator;
   private final ByteBuf resumeToken;
 
-  public ServerRSocketSession(
-      DuplexConnection duplexConnection,
+  public ServerRSocketSession(DuplexConnection duplexConnection,
       ByteBufAllocator allocator,
       Duration resumeSessionDuration,
-      Duration resumeStreamTimeout,
-      Function<? super ByteBuf, ? extends ResumableFramesStore> resumeStoreFactory,
+      Duration resumeStreamTimeout, ResumableFramesStore resumableFramesStore,
       ByteBuf resumeToken,
       boolean cleanupStoreOnKeepAlive) {
     this.allocator = allocator;
     this.resumeToken = resumeToken;
     this.resumableConnection =
-        new ResumableDuplexConnection(
-            "server",
+        new ResumableDuplexConnection("server",
             duplexConnection,
-            resumeStoreFactory.apply(resumeToken),
+            resumableFramesStore,
             resumeStreamTimeout,
             cleanupStoreOnKeepAlive);
 

@@ -114,6 +114,16 @@ public class InMemoryResumableFramesStore implements ResumableFramesStore {
   }
 
   @Override
+  public ByteBuf setupFrame() {
+    return null;
+  }
+
+  @Override
+  public void saveSetupFrame(ByteBuf frame) {
+
+  }
+
+  @Override
   public void resumableFrameReceived(ByteBuf frame) {
     /*called on transport thread so non-atomic on volatile is safe*/
     impliedPosition += frame.readableBytes();

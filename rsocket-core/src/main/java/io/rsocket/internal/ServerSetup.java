@@ -31,6 +31,7 @@ import java.time.Duration;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import reactor.core.publisher.Mono;
+import reactor.util.function.*;
 
 public interface ServerSetup {
 
@@ -39,7 +40,9 @@ public interface ServerSetup {
       ClientServerInputMultiplexer multiplexer,
       BiFunction<KeepAliveHandler, ClientServerInputMultiplexer, Mono<Void>> then);
 
-  Mono<Void> acceptRSocketResume(ByteBuf frame, ClientServerInputMultiplexer multiplexer);
+  Mono<Void> acceptRSocketResume(ByteBuf frame,
+                                 ClientServerInputMultiplexer multiplexer,
+                                 Function<Tuple3<KeepAliveHandler, ByteBuf, ClientServerInputMultiplexer>, Mono<Void>> then);
 
   default void dispose() {}
 
@@ -69,7 +72,9 @@ public interface ServerSetup {
     }
 
     @Override
-    public Mono<Void> acceptRSocketResume(ByteBuf frame, ClientServerInputMultiplexer multiplexer) {
+    public Mono<Void> acceptRSocketResume(ByteBuf frame,
+                                          ClientServerInputMultiplexer multiplexer,
+                                          Function<Tuple3<KeepAliveHandler, ByteBuf, ClientServerInputMultiplexer>, Mono<Void>> then) {
 
       return sendError(multiplexer, new RejectedResumeException("resume not supported"))
           .doFinally(
@@ -109,22 +114,22 @@ public interface ServerSetup {
 
     @Override
     public Mono<Void> acceptRSocketSetup(
-        ByteBuf frame,
+        ByteBuf setupFrame,
         ClientServerInputMultiplexer multiplexer,
         BiFunction<KeepAliveHandler, ClientServerInputMultiplexer, Mono<Void>> then) {
 
-      if (SetupFrameFlyweight.resumeEnabled(frame)) {
-        ByteBuf resumeToken = SetupFrameFlyweight.resumeToken(frame);
+      if (SetupFrameFlyweight.resumeEnabled(setupFrame)) {
+        ByteBuf resumeToken = SetupFrameFlyweight.resumeToken(setupFrame);
+        ResumableFramesStore resumableFramesStore = resumeStoreFactory.apply(resumeToken);
+        resumableFramesStore.saveSetupFrame(setupFrame);
 
         ResumableDuplexConnection connection =
             sessionManager
                 .save(
-                    new ServerRSocketSession(
-                        multiplexer.asClientServerConnection(),
+                    new ServerRSocketSession(multiplexer.asClientServerConnection(),
                         allocator,
                         resumeSessionDuration,
-                        resumeStreamTimeout,
-                        resumeStoreFactory,
+                        resumeStreamTimeout, resumableFramesStore,
                         resumeToken,
                         cleanupStoreOnKeepAlive))
                 .resumableConnection();
@@ -137,22 +142,34 @@ public interface ServerSetup {
     }
 
     @Override
-    public Mono<Void> acceptRSocketResume(ByteBuf frame, ClientServerInputMultiplexer multiplexer) {
-      ServerRSocketSession session = sessionManager.get(ResumeFrameFlyweight.token(frame));
+    public Mono<Void> acceptRSocketResume(ByteBuf resumeFrame,
+                                          ClientServerInputMultiplexer multiplexer,
+                                          Function<Tuple3<KeepAliveHandler, ByteBuf, ClientServerInputMultiplexer>, Mono<Void>>  then) {
+      ByteBuf token = ResumeFrameFlyweight.token(resumeFrame);
+      ServerRSocketSession session = sessionManager.get(token);
       if (session != null) {
         return session
             .continueWith(multiplexer.asClientServerConnection())
-            .resumeWith(frame)
+            .resumeWith(resumeFrame)
             .onClose()
             .then();
-      } else {
-        return sendError(multiplexer, new RejectedResumeException("unknown resume token"))
-            .doFinally(
-                s -> {
-                  frame.release();
-                  multiplexer.dispose();
-                });
       }
+      ResumableFramesStore resumableFramesStore = resumeStoreFactory.apply(token);
+      ResumableDuplexConnection connection =
+              sessionManager
+                      .save(
+                              new ServerRSocketSession(
+                                      multiplexer.asClientServerConnection(),
+                                      allocator,
+                                      resumeSessionDuration,
+                                      resumeStreamTimeout,
+                                      resumableFramesStore,
+                                      token,
+                                      cleanupStoreOnKeepAlive)
+                                      .continueWith(multiplexer.asClientServerConnection())
+                                      .resumeWith(resumeFrame))
+                      .resumableConnection();
+      return then.apply(Tuples.of(new ResumableKeepAliveHandler(connection), resumableFramesStore.setupFrame(), new ClientServerInputMultiplexer(connection)));
     }
 
     private Mono<Void> sendError(ClientServerInputMultiplexer multiplexer, Exception exception) {

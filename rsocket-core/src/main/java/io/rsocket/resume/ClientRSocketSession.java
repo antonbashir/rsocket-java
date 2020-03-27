@@ -49,8 +49,7 @@ public class ClientRSocketSession implements RSocketSession<Mono<DuplexConnectio
       boolean cleanupStoreOnKeepAlive) {
     this.allocator = allocator;
     this.resumableConnection =
-        new ResumableDuplexConnection(
-            "client",
+        new ResumableDuplexConnection("client",
             duplexConnection,
             resumableFramesStore,
             resumeStreamTimeout,

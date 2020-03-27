@@ -70,8 +70,7 @@ public class KeepAliveTest {
   static ResumableRSocketState resumableRequester(int tickPeriod, int timeout) {
     TestDuplexConnection connection = new TestDuplexConnection();
     ResumableDuplexConnection resumableConnection =
-        new ResumableDuplexConnection(
-            "test",
+        new ResumableDuplexConnection("test",
             connection,
             new InMemoryResumableFramesStore("test", 10_000),
             Duration.ofSeconds(10),

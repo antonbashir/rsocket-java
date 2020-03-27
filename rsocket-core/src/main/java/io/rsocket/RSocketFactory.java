@@ -682,7 +682,52 @@ public class RSocketFactory {
 
       private Mono<Void> acceptResume(
           ServerSetup serverSetup, ByteBuf resumeFrame, ClientServerInputMultiplexer multiplexer) {
-        return serverSetup.acceptRSocketResume(resumeFrame, multiplexer);
+        return serverSetup.acceptRSocketResume(resumeFrame, multiplexer, (resumeContext) -> {
+          ConnectionSetupPayload setupPayload = ConnectionSetupPayload.create(resumeContext.getT2());
+
+          Leases<?> leases = leasesSupplier.get();
+          RequesterLeaseHandler requesterLeaseHandler = RequesterLeaseHandler.None;
+
+          RSocket rSocketRequester =
+                  new RSocketRequester(
+                          allocator,
+                          resumeContext.getT3().asServerConnection(),
+                          payloadDecoder,
+                          errorConsumer,
+                          StreamIdSupplier.serverSupplier(),
+                          setupPayload.keepAliveInterval(),
+                          setupPayload.keepAliveMaxLifetime(),
+                          resumeContext.getT1(),
+                          requesterLeaseHandler);
+
+          if (multiSubscriberRequester) {
+            rSocketRequester = new MultiSubscriberRSocket(rSocketRequester);
+          }
+          RSocket wrappedRSocketRequester = plugins.applyRequester(rSocketRequester);
+
+          return plugins
+                  .applySocketAcceptorInterceptor(acceptor)
+                  .accept(setupPayload, wrappedRSocketRequester)
+                  .onErrorResume(err -> sendError(multiplexer, rejectedSetupError(err)).then(Mono.error(err)))
+                  .doOnNext(
+                          rSocketHandler -> {
+                            RSocket wrappedRSocketHandler = plugins.applyResponder(rSocketHandler);
+
+                            ResponderLeaseHandler responderLeaseHandler = ResponderLeaseHandler.None;
+
+
+                            RSocket rSocketResponder =
+                                    new RSocketResponder(
+                                            allocator,
+                                            resumeContext.getT3().asClientConnection(),
+                                            wrappedRSocketHandler,
+                                            payloadDecoder,
+                                            errorConsumer,
+                                            responderLeaseHandler);
+                          })
+                  .doFinally(signalType -> setupPayload.release())
+                  .then();
+        });
       }
 
       private Mono<Void> accept(

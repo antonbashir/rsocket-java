@@ -33,6 +33,7 @@ import reactor.core.Disposable;
 import reactor.core.Disposables;
 import reactor.core.publisher.*;
 import reactor.util.concurrent.Queues;
+import static java.util.Objects.nonNull;
 
 public class ResumableDuplexConnection implements DuplexConnection, ResumeStateHolder {
   private static final Logger logger = LoggerFactory.getLogger(ResumableDuplexConnection.class);
@@ -70,8 +71,7 @@ public class ResumableDuplexConnection implements DuplexConnection, ResumeStateH
   private volatile int state;
   private volatile Disposable resumedStreamDisposable = Disposables.disposed();
 
-  public ResumableDuplexConnection(
-      String tag,
+  public ResumableDuplexConnection(String tag,
       DuplexConnection duplexConnection,
       ResumableFramesStore resumableFramesStore,
       Duration resumeStreamTimeout,
@@ -80,7 +80,6 @@ public class ResumableDuplexConnection implements DuplexConnection, ResumeStateH
     this.resumableFramesStore = resumableFramesStore;
     this.resumeStreamTimeout = resumeStreamTimeout;
     this.cleanupOnKeepAlive = cleanupOnKeepAlive;
-
     resumableFramesStore
         .saveFrames(resumeSaveStreamRequestListener.apply(resumeSaveFrames))
         .subscribe(resumeSaveCompleted);
